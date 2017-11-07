@@ -17,9 +17,10 @@
 define(
   'tinymce.core.ErrorReporter',
   [
-    "tinymce.core.AddOnManager"
+    'global!window',
+    'tinymce.core.AddOnManager'
   ],
-  function (AddOnManager) {
+  function (window, AddOnManager) {
     var PluginManager = AddOnManager.PluginManager;
 
     var resolvePluginName = function (targetUrl, suffix) {
@@ -65,10 +66,6 @@ define(
       displayError(editor, pluginUrlToMessage(editor, url));
     };
 
-    var contentCssError = function (editor, urls) {
-      displayError(editor, 'Failed to load content css: ' + urls[0]);
-    };
-
     var initError = function (message) {
       var console = window.console;
       if (console && !window.test) { // Skip test env
@@ -84,7 +81,6 @@ define(
       pluginLoadError: pluginLoadError,
       uploadError: uploadError,
       displayError: displayError,
-      contentCssError: contentCssError,
       initError: initError
     };
   }

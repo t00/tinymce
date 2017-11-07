@@ -17,19 +17,18 @@
 define(
   'tinymce.core.EditorCommands',
   [
-    'tinymce.core.delete.DeleteCommands',
-    'tinymce.core.dom.NodeType',
-    'tinymce.core.dom.RangeUtils',
-    'tinymce.core.dom.TreeWalker',
     'tinymce.core.Env',
     'tinymce.core.InsertContent',
+    'tinymce.core.delete.DeleteCommands',
+    'tinymce.core.dom.NodeType',
+    'tinymce.core.keyboard.InsertBr',
+    'tinymce.core.selection.SelectionBookmark',
     'tinymce.core.util.Tools'
   ],
-  function (DeleteCommands, NodeType, RangeUtils, TreeWalker, Env, InsertContent, Tools) {
+  function (Env, InsertContent, DeleteCommands, NodeType, InsertBr, SelectionBookmark, Tools) {
     // Added for compression purposes
     var each = Tools.each, extend = Tools.extend;
     var map = Tools.map, inArray = Tools.inArray, explode = Tools.explode;
-    var isOldIE = Env.ie && Env.ie < 11;
     var TRUE = true, FALSE = false;
 
     return function (editor) {
@@ -55,7 +54,7 @@ define(
        * @param {Object} args Optional extra arguments to the execCommand.
        * @return {Boolean} true/false if the command was found or not.
        */
-      function execCommand(command, ui, value, args) {
+      var execCommand = function (command, ui, value, args) {
         var func, customCommand, state = 0;
 
         if (editor.removed) {
@@ -64,6 +63,8 @@ define(
 
         if (!/^(mceAddUndoLevel|mceEndUndoLevel|mceBeginUndoLevel|mceRepaint)$/.test(command) && (!args || !args.skip_focus)) {
           editor.focus();
+        } else {
+          SelectionBookmark.restore(editor);
         }
 
         args = editor.fire('BeforeExecCommand', { command: command, ui: ui, value: value });
@@ -110,7 +111,7 @@ define(
         }
 
         return false;
-      }
+      };
 
       /**
        * Queries the current state for a command for example if the current selection is "bold".
@@ -119,7 +120,7 @@ define(
        * @param {String} command Command to check the state of.
        * @return {Boolean/Number} true/false if the selected contents is bold or not, -1 if it's not found.
        */
-      function queryCommandState(command) {
+      var queryCommandState = function (command) {
         var func;
 
         if (editor.quirks.isHidden() || editor.removed) {
@@ -139,7 +140,7 @@ define(
         }
 
         return false;
-      }
+      };
 
       /**
        * Queries the command value for example the current fontsize.
@@ -148,7 +149,7 @@ define(
        * @param {String} command Command to check the value of.
        * @return {Object} Command value of false if it's not found.
        */
-      function queryCommandValue(command) {
+      var queryCommandValue = function (command) {
         var func;
 
         if (editor.quirks.isHidden() || editor.removed) {
@@ -166,7 +167,7 @@ define(
         } catch (ex) {
           // Fails sometimes see bug: 1896577
         }
-      }
+      };
 
       /**
        * Adds commands to the command collection.
@@ -175,7 +176,7 @@ define(
        * @param {Object} commandList Name/value collection with commands to add, the names can also be comma separated.
        * @param {String} type Optional type to add, defaults to exec. Can be value or state as well.
        */
-      function addCommands(commandList, type) {
+      var addCommands = function (commandList, type) {
         type = type || 'exec';
 
         each(commandList, function (callback, command) {
@@ -183,14 +184,14 @@ define(
             commands[type][command] = callback;
           });
         });
-      }
+      };
 
-      function addCommand(command, callback, scope) {
+      var addCommand = function (command, callback, scope) {
         command = command.toLowerCase();
         commands.exec[command] = function (command, ui, value, args) {
           return callback.call(scope || editor, ui, value, args);
         };
-      }
+      };
 
       /**
        * Returns true/false if the command is supported or not.
@@ -199,7 +200,7 @@ define(
        * @param {String} command Command that we check support for.
        * @return {Boolean} true/false if the command is supported or not.
        */
-      function queryCommandSupported(command) {
+      var queryCommandSupported = function (command) {
         command = command.toLowerCase();
 
         if (commands.exec[command]) {
@@ -214,26 +215,26 @@ define(
         }
 
         return false;
-      }
+      };
 
-      function addQueryStateHandler(command, callback, scope) {
+      var addQueryStateHandler = function (command, callback, scope) {
         command = command.toLowerCase();
         commands.state[command] = function () {
           return callback.call(scope || editor);
         };
-      }
+      };
 
-      function addQueryValueHandler(command, callback, scope) {
+      var addQueryValueHandler = function (command, callback, scope) {
         command = command.toLowerCase();
         commands.value[command] = function () {
           return callback.call(scope || editor);
         };
-      }
+      };
 
-      function hasCustomCommand(command) {
+      var hasCustomCommand = function (command) {
         command = command.toLowerCase();
         return !!commands.exec[command];
-      }
+      };
 
       // Expose public methods
       extend(this, {
@@ -250,7 +251,7 @@ define(
 
       // Private methods
 
-      function execNativeCommand(command, ui, value) {
+      var execNativeCommand = function (command, ui, value) {
         if (ui === undefined) {
           ui = FALSE;
         }
@@ -260,24 +261,24 @@ define(
         }
 
         return editor.getDoc().execCommand(command, ui, value);
-      }
+      };
 
-      function isFormatMatch(name) {
+      var isFormatMatch = function (name) {
         return formatter.match(name);
-      }
+      };
 
-      function toggleFormat(name, value) {
+      var toggleFormat = function (name, value) {
         formatter.toggle(name, value ? { value: value } : undefined);
         editor.nodeChanged();
-      }
+      };
 
-      function storeSelection(type) {
+      var storeSelection = function (type) {
         bookmark = selection.getBookmark(type);
-      }
+      };
 
-      function restoreSelection() {
+      var restoreSelection = function () {
         selection.moveToBookmark(bookmark);
-      }
+      };
 
       // Add execCommand overrides
       addCommands({
@@ -549,25 +550,11 @@ define(
         },
 
         selectAll: function () {
-          var root = dom.getRoot(), rng;
-
-          if (selection.getRng().setStart) {
-            var editingHost = dom.getParent(selection.getStart(), NodeType.isContentEditableTrue);
-            if (editingHost) {
-              rng = dom.createRng();
-              rng.selectNodeContents(editingHost);
-              selection.setRng(rng);
-            }
-          } else {
-            // IE will render it's own root level block elements and sometimes
-            // even put font elements in them when the user starts typing. So we need to
-            // move the selection to a more suitable element from this:
-            // <body>|<p></p></body> to this: <body><p>|</p></body>
-            rng = selection.getRng();
-            if (!rng.item) {
-              rng.moveToElementText(root);
-              rng.select();
-            }
+          var editingHost = dom.getParent(selection.getStart(), NodeType.isContentEditableTrue);
+          if (editingHost) {
+            var rng = dom.createRng();
+            rng.selectNodeContents(editingHost);
+            selection.setRng(rng);
           }
         },
 
@@ -584,90 +571,8 @@ define(
         },
 
         InsertLineBreak: function (command, ui, value) {
-          // We load the current event in from EnterKey.js when appropriate to heed
-          // certain event-specific variations such as ctrl-enter in a list
-          var evt = value;
-          var brElm, extraBr, marker;
-          var rng = selection.getRng(true);
-          new RangeUtils(dom).normalize(rng);
-
-          var offset = rng.startOffset;
-          var container = rng.startContainer;
-
-          // Resolve node index
-          if (container.nodeType == 1 && container.hasChildNodes()) {
-            var isAfterLastNodeInContainer = offset > container.childNodes.length - 1;
-
-            container = container.childNodes[Math.min(offset, container.childNodes.length - 1)] || container;
-            if (isAfterLastNodeInContainer && container.nodeType == 3) {
-              offset = container.nodeValue.length;
-            } else {
-              offset = 0;
-            }
-          }
-
-          var parentBlock = dom.getParent(container, dom.isBlock);
-          var parentBlockName = parentBlock ? parentBlock.nodeName.toUpperCase() : ''; // IE < 9 & HTML5
-          var containerBlock = parentBlock ? dom.getParent(parentBlock.parentNode, dom.isBlock) : null;
-          var containerBlockName = containerBlock ? containerBlock.nodeName.toUpperCase() : ''; // IE < 9 & HTML5
-
-          // Enter inside block contained within a LI then split or insert before/after LI
-          var isControlKey = evt && evt.ctrlKey;
-          if (containerBlockName == 'LI' && !isControlKey) {
-            parentBlock = containerBlock;
-            parentBlockName = containerBlockName;
-          }
-
-          // Walks the parent block to the right and look for BR elements
-          function hasRightSideContent() {
-            var walker = new TreeWalker(container, parentBlock), node;
-            var nonEmptyElementsMap = editor.schema.getNonEmptyElements();
-
-            while ((node = walker.next())) {
-              if (nonEmptyElementsMap[node.nodeName.toLowerCase()] || node.length > 0) {
-                return true;
-              }
-            }
-          }
-
-          if (container && container.nodeType == 3 && offset >= container.nodeValue.length) {
-            // Insert extra BR element at the end block elements
-            if (!isOldIE && !hasRightSideContent()) {
-              brElm = dom.create('br');
-              rng.insertNode(brElm);
-              rng.setStartAfter(brElm);
-              rng.setEndAfter(brElm);
-              extraBr = true;
-            }
-          }
-
-          brElm = dom.create('br');
-          rng.insertNode(brElm);
-
-          // Rendering modes below IE8 doesn't display BR elements in PRE unless we have a \n before it
-          var documentMode = dom.doc.documentMode;
-          if (isOldIE && parentBlockName == 'PRE' && (!documentMode || documentMode < 8)) {
-            brElm.parentNode.insertBefore(dom.doc.createTextNode('\r'), brElm);
-          }
-
-          // Insert temp marker and scroll to that
-          marker = dom.create('span', {}, '&nbsp;');
-          brElm.parentNode.insertBefore(marker, brElm);
-          selection.scrollIntoView(marker);
-          dom.remove(marker);
-
-          if (!extraBr) {
-            rng.setStartAfter(brElm);
-            rng.setEndAfter(brElm);
-          } else {
-            rng.setStartBefore(brElm);
-            rng.setEndBefore(brElm);
-          }
-
-          selection.setRng(rng);
-          editor.undoManager.add();
-
-          return TRUE;
+          InsertBr.insertBr(editor, value);
+          return true;
         }
       });
 

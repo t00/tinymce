@@ -15,6 +15,7 @@ define(
     'ephox.katamari.api.Option',
     'ephox.katamari.api.Options',
     'ephox.sugar.api.node.Element',
+    'global!document',
     'tinymce.core.caret.CaretContainer',
     'tinymce.core.caret.CaretFinder',
     'tinymce.core.caret.CaretPosition',
@@ -26,7 +27,7 @@ define(
     'tinymce.core.keyboard.InlineUtils'
   ],
   function (
-    Fun, Option, Options, Element, CaretContainer, CaretFinder, CaretPosition, CaretUtils, DeleteElement, BoundaryCaret, BoundaryLocation, BoundarySelection,
+    Fun, Option, Options, Element, document, CaretContainer, CaretFinder, CaretPosition, CaretUtils, DeleteElement, BoundaryCaret, BoundaryLocation, BoundarySelection,
     InlineUtils
   ) {
     var isFeatureEnabled = function (editor) {
@@ -45,13 +46,13 @@ define(
     // Checks for delete at <code>|a</code> when there is only one item left except the zwsp caret container nodes
     var hasOnlyTwoOrLessPositionsLeft = function (elm) {
       return Options.liftN([
-        InlineUtils.findCaretPositionIn(elm, true),
-        InlineUtils.findCaretPositionIn(elm, false)
+        CaretFinder.firstPositionIn(elm),
+        CaretFinder.lastPositionIn(elm)
       ], function (firstPos, lastPos) {
         var normalizedFirstPos = InlineUtils.normalizePosition(true, firstPos);
         var normalizedLastPos = InlineUtils.normalizePosition(false, lastPos);
 
-        return InlineUtils.findCaretPosition(elm, true, normalizedFirstPos).map(function (pos) {
+        return CaretFinder.nextPosition(elm, normalizedFirstPos).map(function (pos) {
           return pos.isEqual(normalizedLastPos);
         }).getOr(true);
       }).getOr(true);
@@ -68,12 +69,13 @@ define(
 
     var deleteFromTo = function (editor, caret, from, to) {
       var rootNode = editor.getBody();
+      var isInlineTarget = Fun.curry(InlineUtils.isInlineTarget, editor);
 
       editor.undoManager.ignore(function () {
         editor.selection.setRng(rangeFromPositions(from, to));
         editor.execCommand('Delete');
 
-        BoundaryLocation.readLocation(rootNode, CaretPosition.fromRangeStart(editor.selection.getRng()))
+        BoundaryLocation.readLocation(isInlineTarget, rootNode, CaretPosition.fromRangeStart(editor.selection.getRng()))
           .map(BoundaryLocation.inside)
           .map(setCaretLocation(editor, caret));
       });
@@ -88,7 +90,8 @@ define(
 
     var backspaceDeleteCollapsed = function (editor, caret, forward, from) {
       var rootNode = rescope(editor.getBody(), from.container());
-      var fromLocation = BoundaryLocation.readLocation(rootNode, from);
+      var isInlineTarget = Fun.curry(InlineUtils.isInlineTarget, editor);
+      var fromLocation = BoundaryLocation.readLocation(isInlineTarget, rootNode, from);
 
       return fromLocation.bind(function (location) {
         if (forward) {
@@ -111,11 +114,11 @@ define(
       .getOrThunk(function () {
         var toPosition = CaretFinder.navigate(forward, rootNode, from);
         var toLocation = toPosition.bind(function (pos) {
-          return BoundaryLocation.readLocation(rootNode, pos);
+          return BoundaryLocation.readLocation(isInlineTarget, rootNode, pos);
         });
 
         if (fromLocation.isSome() && toLocation.isSome()) {
-          return InlineUtils.findRootInline(rootNode, from).map(function (elm) {
+          return InlineUtils.findRootInline(isInlineTarget, rootNode, from).map(function (elm) {
             if (hasOnlyTwoOrLessPositionsLeft(elm)) {
               DeleteElement.deleteElement(editor, forward, Element.fromDom(elm));
               return true;

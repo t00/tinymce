@@ -11,11 +11,12 @@
 define(
   'tinymce.plugins.paste.core.CutCopy',
   [
+    'global!setTimeout',
     'tinymce.core.Env',
     'tinymce.plugins.paste.core.InternalHtml',
     'tinymce.plugins.paste.core.Utils'
   ],
-  function (Env, InternalHtml, Utils) {
+  function (setTimeout, Env, InternalHtml, Utils) {
     var noop = function () {
     };
 
@@ -53,7 +54,10 @@ define(
     var fallback = function (editor) {
       return function (html, done) {
         var markedHtml = InternalHtml.mark(html);
-        var outer = editor.dom.create('div', { contenteditable: "false" });
+        var outer = editor.dom.create('div', {
+          contenteditable: "false",
+          "data-mce-bogus": "all"
+        });
         var inner = editor.dom.create('div', { contenteditable: "true" }, markedHtml);
         editor.dom.setStyles(outer, {
           position: 'fixed',
@@ -90,7 +94,11 @@ define(
       return function (evt) {
         if (editor.selection.isCollapsed() === false) {
           setClipboardData(evt, getData(editor), fallback(editor), function () {
-            editor.execCommand('Delete');
+            // Chrome fails to execCommand from another execCommand with this message:
+            // "We don't execute document.execCommand() this time, because it is called recursively.""
+            setTimeout(function () { // detach
+              editor.execCommand('Delete');
+            }, 0);
           });
         }
       };

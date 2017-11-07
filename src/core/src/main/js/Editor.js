@@ -39,27 +39,31 @@ define(
   'tinymce.core.Editor',
   [
     'tinymce.core.AddOnManager',
-    'tinymce.core.dom.DomQuery',
-    'tinymce.core.dom.DOMUtils',
     'tinymce.core.EditorCommands',
     'tinymce.core.EditorObservable',
     'tinymce.core.EditorSettings',
     'tinymce.core.Env',
-    'tinymce.core.html.Serializer',
-    'tinymce.core.init.Render',
     'tinymce.core.Mode',
     'tinymce.core.Shortcuts',
+    'tinymce.core.dom.DOMUtils',
+    'tinymce.core.dom.DomQuery',
+    'tinymce.core.focus.EditorFocus',
+    'tinymce.core.html.Serializer',
+    'tinymce.core.init.Render',
     'tinymce.core.ui.Sidebar',
     'tinymce.core.util.Tools',
     'tinymce.core.util.URI',
     'tinymce.core.util.Uuid'
   ],
-  function (AddOnManager, DomQuery, DOMUtils, EditorCommands, EditorObservable, EditorSettings, Env, Serializer, Render, Mode, Shortcuts, Sidebar, Tools, URI, Uuid) {
+  function (
+    AddOnManager, EditorCommands, EditorObservable, EditorSettings, Env, Mode, Shortcuts, DOMUtils, DomQuery, EditorFocus, Serializer, Render, Sidebar, Tools,
+    URI, Uuid
+  ) {
     // Shorten these names
     var DOM = DOMUtils.DOM;
     var extend = Tools.extend, each = Tools.each;
     var trim = Tools.trim, resolve = Tools.resolve;
-    var isGecko = Env.gecko, ie = Env.ie;
+    var ie = Env.ie;
 
     /**
      * Include Editor API docs.
@@ -76,7 +80,7 @@ define(
      * @param {Object} settings Settings for the editor.
      * @param {tinymce.EditorManager} editorManager EditorManager instance.
      */
-    function Editor(id, settings, editorManager) {
+    var Editor = function (id, settings, editorManager) {
       var self = this, documentBaseUrl, baseUri;
 
       documentBaseUrl = self.documentBaseUrl = editorManager.documentBaseURL;
@@ -172,13 +176,14 @@ define(
        */
       self.contentStyles = [];
 
-      // Creates all events like onClick, onSetContent etc see Editor.Events.js for the actual logic
       self.shortcuts = new Shortcuts(self);
       self.loadedCSS = {};
       self.editorCommands = new EditorCommands(self);
       self.suffix = editorManager.suffix;
       self.editorManager = editorManager;
       self.inline = settings.inline;
+      self.buttons = {};
+      self.menuItems = {};
 
       if (settings.cache_suffix) {
         Env.cacheSuffix = settings.cache_suffix.replace(/^[\?\&]+/, '');
@@ -207,7 +212,7 @@ define(
           element: self.getBody()
         };
       });
-    }
+    };
 
     Editor.prototype = {
       /**
@@ -227,81 +232,7 @@ define(
        * @param {Boolean} skipFocus Skip DOM focus. Just set is as the active editor.
        */
       focus: function (skipFocus) {
-        var self = this, selection = self.selection, contentEditable = self.settings.content_editable, rng;
-        var controlElm, doc = self.getDoc(), body = self.getBody(), contentEditableHost;
-
-        function getContentEditableHost(node) {
-          return self.dom.getParent(node, function (node) {
-            return self.dom.getContentEditable(node) === "true";
-          });
-        }
-
-        if (self.removed) {
-          return;
-        }
-
-        if (!skipFocus) {
-          // Get selected control element
-          rng = selection.getRng();
-          if (rng.item) {
-            controlElm = rng.item(0);
-          }
-
-          self.quirks.refreshContentEditable();
-
-          // Move focus to contentEditable=true child if needed
-          contentEditableHost = getContentEditableHost(selection.getNode());
-          if (self.$.contains(body, contentEditableHost)) {
-            contentEditableHost.focus();
-            selection.normalize();
-            self.editorManager.setActive(self);
-            return;
-          }
-
-          // Focus the window iframe
-          if (!contentEditable) {
-            // WebKit needs this call to fire focusin event properly see #5948
-            // But Opera pre Blink engine will produce an empty selection so skip Opera
-            if (!Env.opera) {
-              self.getBody().focus();
-            }
-
-            self.getWin().focus();
-          }
-
-          // Focus the body as well since it's contentEditable
-          if (isGecko || contentEditable) {
-            // Check for setActive since it doesn't scroll to the element
-            if (body.setActive) {
-              // IE 11 sometimes throws "Invalid function" then fallback to focus
-              try {
-                body.setActive();
-              } catch (ex) {
-                body.focus();
-              }
-            } else {
-              // Restore previous selection before focus to prevent Chrome from
-              // jumping to the top of the document in long inline editors
-              self.selection.setRng(self.lastRng);
-              body.focus();
-            }
-
-            if (contentEditable) {
-              selection.normalize();
-            }
-          }
-
-          // Restore selected control element
-          // This is needed when for example an image is selected within a
-          // layer a call to focus will then remove the control selection
-          if (controlElm && controlElm.ownerDocument == doc) {
-            rng = doc.body.createControlRange();
-            rng.addElement(controlElm);
-            rng.select();
-          }
-        }
-
-        self.editorManager.setActive(self);
+        EditorFocus.focus(this, skipFocus);
       },
 
       /**
@@ -459,7 +390,7 @@ define(
           settings.icon = name;
         }
 
-        self.buttons = self.buttons || {};
+        self.buttons = self.buttons;
         settings.tooltip = settings.tooltip || settings.title;
         self.buttons[name] = settings;
       },
@@ -523,7 +454,7 @@ define(
           };
         }
 
-        self.menuItems = self.menuItems || {};
+        self.menuItems = self.menuItems;
         self.menuItems[name] = settings;
       },
 
@@ -942,8 +873,8 @@ define(
             content = new Serializer({
               validate: self.validate
             }, self.schema).serialize(
-              self.parser.parse(content, { isRootContent: true })
-              );
+              self.parser.parse(content, { isRootContent: true, insert: true })
+            );
           }
 
           // Set the new cleaned contents to the editor

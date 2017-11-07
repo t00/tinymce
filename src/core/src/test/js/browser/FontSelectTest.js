@@ -13,9 +13,10 @@ asynctest(
     'ephox.mcagar.api.TinyLoader',
     'ephox.sugar.api.node.Element',
     'ephox.sugar.api.properties.TextContent',
+    'global!document',
     'tinymce.themes.modern.Theme'
   ],
-  function (Assertions, Chain, GeneralSteps, Logger, Pipeline, UiFinder, Fun, Strings, TinyApis, TinyLoader, Element, TextContent, Theme) {
+  function (Assertions, Chain, GeneralSteps, Logger, Pipeline, UiFinder, Fun, Strings, TinyApis, TinyLoader, Element, TextContent, document, Theme) {
     var success = arguments[arguments.length - 2];
     var failure = arguments[arguments.length - 1];
 
@@ -48,11 +49,12 @@ asynctest(
         ])),
 
         Logger.t('Font family and font size on paragraph with styles', GeneralSteps.sequence([
-          tinyApis.sSetContent('<p style="font-family: Times; font-size: 16px;">a</p>'),
+          tinyApis.sSetContent('<p style="font-family: Times; font-size: 17px;">a</p>'),
           tinyApis.sFocus,
           tinyApis.sSetCursor([0, 0], 0),
           tinyApis.sNodeChanged,
-          sAssertSelectBoxDisplayValue(editor, 'Font Sizes', '12pt'),
+          // the following one should pick up 12.75pt, although there's a rounded 13pt in the dropdown as well
+          sAssertSelectBoxDisplayValue(editor, 'Font Sizes', '12.75pt'),
           sAssertSelectBoxDisplayValue(editor, 'Font Family', 'Times')
         ]))
       ], onSuccess, onFailure);
@@ -62,7 +64,8 @@ asynctest(
       content_style: [
         '.mce-content-body { font-family: Helvetica; font-size: 42px; }',
         '.mce-content-body p { font-family: Arial; font-size: 32px; }'
-      ].join('')
+      ].join(''),
+      fontsize_formats: '12pt 12.75pt 13pt 32pt'
     }, success, failure);
   }
 );

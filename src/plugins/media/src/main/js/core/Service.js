@@ -11,12 +11,13 @@
 define(
   'tinymce.plugins.media.core.Service',
   [
-    'tinymce.plugins.media.core.DataToHtml',
-    'tinymce.core.util.Promise'
+    'tinymce.core.util.Promise',
+    'tinymce.plugins.media.api.Settings',
+    'tinymce.plugins.media.core.DataToHtml'
   ],
-  function (DataToHtml, Promise) {
+  function (Promise, Settings, DataToHtml) {
+    var cache = {};
     var embedPromise = function (data, dataToHtml, handler) {
-      var cache = {};
       return new Promise(function (res, rej) {
         var wrappedResolve = function (response) {
           if (response.html) {
@@ -48,13 +49,18 @@ define(
     };
 
     var getEmbedHtml = function (editor, data) {
-      var embedHandler = editor.settings.media_url_resolver;
+      var embedHandler = Settings.getUrlResolver(editor);
 
       return embedHandler ? embedPromise(data, loadedData(editor), embedHandler) : defaultPromise(data, loadedData(editor));
     };
 
+    var isCached = function (url) {
+      return cache.hasOwnProperty(url);
+    };
+
     return {
-      getEmbedHtml: getEmbedHtml
+      getEmbedHtml: getEmbedHtml,
+      isCached: isCached
     };
   }
 );

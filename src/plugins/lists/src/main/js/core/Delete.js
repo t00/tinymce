@@ -11,7 +11,7 @@
 define(
   'tinymce.plugins.lists.core.Delete',
   [
-    'tinymce.core.dom.RangeUtils',
+    'tinymce.core.api.dom.RangeUtils',
     'tinymce.core.dom.TreeWalker',
     'tinymce.core.util.VK',
     'tinymce.plugins.lists.actions.ToggleList',
@@ -22,7 +22,7 @@ define(
     'tinymce.plugins.lists.core.Selection'
   ],
   function (RangeUtils, TreeWalker, VK, ToggleList, Bookmark, NodeType, NormalizeLists, Range, Selection) {
-    var findNextCaretContainer = function (editor, rng, isForward) {
+    var findNextCaretContainer = function (editor, rng, isForward, root) {
       var node = rng.startContainer, offset = rng.startOffset;
       var nonEmptyBlocks, walker;
 
@@ -35,7 +35,7 @@ define(
         node = RangeUtils.getNode(node, offset);
       }
 
-      walker = new TreeWalker(node, editor.getBody());
+      walker = new TreeWalker(node, root);
 
       // Delete at <li>|<br></li> then jump over the bogus br
       if (isForward) {
@@ -55,6 +55,30 @@ define(
 
         if (node.nodeType === 3 && node.data.length > 0) {
           return node;
+        }
+      }
+    };
+
+    var hasOnlyOneBlockChild = function (dom, elm) {
+      var childNodes = elm.childNodes;
+      return childNodes.length === 1 && !NodeType.isListNode(childNodes[0]) && dom.isBlock(childNodes[0]);
+    };
+
+    var unwrapSingleBlockChild = function (dom, elm) {
+      if (hasOnlyOneBlockChild(dom, elm)) {
+        dom.remove(elm.firstChild, true);
+      }
+    };
+
+    var moveChildren = function (dom, fromElm, toElm) {
+      var node, targetElm;
+
+      targetElm = hasOnlyOneBlockChild(dom, toElm) ? toElm.firstChild : toElm;
+      unwrapSingleBlockChild(dom, fromElm);
+
+      if (!NodeType.isEmpty(dom, fromElm, true)) {
+        while ((node = fromElm.firstChild)) {
+          targetElm.appendChild(node);
         }
       }
     };
@@ -85,11 +109,7 @@ define(
         dom.$(toElm).empty();
       }
 
-      if (!NodeType.isEmpty(dom, fromElm, true)) {
-        while ((node = fromElm.firstChild)) {
-          toElm.appendChild(node);
-        }
-      }
+      moveChildren(dom, fromElm, toElm);
 
       if (listNode) {
         toElm.appendChild(listNode);
@@ -102,9 +122,37 @@ define(
       }
     };
 
+    var mergeIntoEmptyLi = function (editor, fromLi, toLi) {
+      editor.dom.$(toLi).empty();
+      mergeLiElements(editor.dom, fromLi, toLi);
+      editor.selection.setCursorLocation(toLi);
+    };
+
+    var mergeForward = function (editor, rng, fromLi, toLi) {
+      var dom = editor.dom;
+
+      if (dom.isEmpty(toLi)) {
+        mergeIntoEmptyLi(editor, fromLi, toLi);
+      } else {
+        var bookmark = Bookmark.createBookmark(rng);
+        mergeLiElements(dom, fromLi, toLi);
+        editor.selection.setRng(Bookmark.resolveBookmark(bookmark));
+      }
+    };
+
+    var mergeBackward = function (editor, rng, fromLi, toLi) {
+      var bookmark = Bookmark.createBookmark(rng);
+      mergeLiElements(editor.dom, fromLi, toLi);
+      var resolvedBookmark = Bookmark.resolveBookmark(bookmark);
+      editor.selection.setRng(resolvedBookmark);
+    };
+
     var backspaceDeleteFromListToListCaret = function (editor, isForward) {
       var dom = editor.dom, selection = editor.selection;
-      var li = dom.getParent(selection.getStart(), 'LI'), ul, rng, otherLi;
+      var selectionStartElm = selection.getStart();
+      var root = Selection.getClosestListRootElm(editor, selectionStartElm);
+      var li = dom.getParent(selection.getStart(), 'LI', root);
+      var ul, rng, otherLi;
 
       if (li) {
         ul = li.parentNode;
@@ -113,18 +161,14 @@ define(
         }
 
         rng = Range.normalizeRange(selection.getRng(true));
-        otherLi = dom.getParent(findNextCaretContainer(editor, rng, isForward), 'LI');
+        otherLi = dom.getParent(findNextCaretContainer(editor, rng, isForward, root), 'LI', root);
 
         if (otherLi && otherLi !== li) {
-          var bookmark = Bookmark.createBookmark(rng);
-
           if (isForward) {
-            mergeLiElements(dom, otherLi, li);
+            mergeForward(editor, rng, otherLi, li);
           } else {
-            mergeLiElements(dom, li, otherLi);
+            mergeBackward(editor, rng, li, otherLi);
           }
-
-          editor.selection.setRng(Bookmark.resolveBookmark(bookmark));
 
           return true;
         } else if (!otherLi) {
@@ -137,17 +181,28 @@ define(
       return false;
     };
 
+    var removeBlock = function (dom, block, root) {
+      var parentBlock = dom.getParent(block.parentNode, dom.isBlock, root);
+
+      dom.remove(block);
+      if (parentBlock && dom.isEmpty(parentBlock)) {
+        dom.remove(parentBlock);
+      }
+    };
+
     var backspaceDeleteIntoListCaret = function (editor, isForward) {
       var dom = editor.dom;
-      var block = dom.getParent(editor.selection.getStart(), dom.isBlock);
+      var selectionStartElm = editor.selection.getStart();
+      var root = Selection.getClosestListRootElm(editor, selectionStartElm);
+      var block = dom.getParent(selectionStartElm, dom.isBlock, root);
 
       if (block && dom.isEmpty(block)) {
         var rng = Range.normalizeRange(editor.selection.getRng(true));
-        var otherLi = dom.getParent(findNextCaretContainer(editor, rng, isForward), 'LI');
+        var otherLi = dom.getParent(findNextCaretContainer(editor, rng, isForward, root), 'LI', root);
 
         if (otherLi) {
           editor.undoManager.transact(function () {
-            dom.remove(block);
+            removeBlock(dom, block, root);
             ToggleList.mergeWithAdjacentLists(dom, otherLi.parentNode);
             editor.selection.select(otherLi, true);
             editor.selection.collapse(isForward);
@@ -165,7 +220,9 @@ define(
     };
 
     var backspaceDeleteRange = function (editor) {
-      var startListParent = editor.dom.getParent(editor.selection.getStart(), 'LI,DT,DD');
+      var selectionStartElm = editor.selection.getStart();
+      var root = Selection.getClosestListRootElm(editor, selectionStartElm);
+      var startListParent = editor.dom.getParent(selectionStartElm, 'LI,DT,DD', root);
 
       if (startListParent || Selection.getSelectedListItems(editor).length > 0) {
         editor.undoManager.transact(function () {

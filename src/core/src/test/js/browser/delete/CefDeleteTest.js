@@ -12,11 +12,9 @@ asynctest(
     'ephox.mcagar.api.TinyApis',
     'ephox.mcagar.api.TinyLoader',
     'ephox.sugar.api.node.Element',
-    'tinymce.core.Env',
-    'tinymce.core.text.Zwsp',
     'tinymce.themes.modern.Theme'
   ],
-  function (ApproxStructure, GeneralSteps, Keyboard, Keys, Logger, Pipeline, Step, TinyActions, TinyApis, TinyLoader, Element, Env, Zwsp, Theme) {
+  function (ApproxStructure, GeneralSteps, Keyboard, Keys, Logger, Pipeline, Step, TinyActions, TinyApis, TinyLoader, Element, Theme) {
     var success = arguments[arguments.length - 2];
     var failure = arguments[arguments.length - 1];
 
@@ -36,8 +34,9 @@ asynctest(
       ]);
     };
 
-    var sTestDeletePadd = function (editor, tinyApis) {
+    var sTestDeletePadd = function (editor, tinyApis, tinyActions) {
       return GeneralSteps.sequence([
+        tinyApis.sFocus,
         Logger.t('Should padd empty ce=true inside ce=false when everything is deleted', GeneralSteps.sequence([
           tinyApis.sSetContent('<div contenteditable="false">a<p contenteditable="true">a</p>b</div>'),
           tinyApis.sSetSelection([0, 1, 0], 0, [0, 1, 0], 1),
@@ -90,15 +89,40 @@ asynctest(
               });
             })
           )
+        ])),
+
+        Logger.t('Should padd editor with paragraph and br if the editor is empty after delete of a cef element', GeneralSteps.sequence([
+          tinyApis.sSetContent('<div contenteditable="false">a</div>'),
+          tinyApis.sSetSelection([], 0, [], 1),
+          tinyActions.sContentKeystroke(Keys.backspace(), {}),
+          tinyApis.sAssertSelection([0], 0, [0], 0),
+          tinyApis.sAssertContentStructure(
+            ApproxStructure.build(function (s, str, arr) {
+              return s.element('body', {
+                children: [
+                  s.element('p', {
+                    children: [
+                      s.element('br', {
+                        attrs: {
+                          'data-mce-bogus': str.is('1')
+                        }
+                      })
+                    ]
+                  })
+                ]
+              });
+            })
+          )
         ]))
       ]);
     };
 
     TinyLoader.setup(function (editor, onSuccess, onFailure) {
       var tinyApis = TinyApis(editor);
+      var tinyActions = TinyActions(editor);
 
       Pipeline.async({}, [
-        sTestDeletePadd(editor, tinyApis)
+        sTestDeletePadd(editor, tinyApis, tinyActions)
       ], onSuccess, onFailure);
     }, {
       skin_url: '/project/src/skins/lightgray/dist/lightgray'

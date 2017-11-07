@@ -20,6 +20,7 @@ asynctest(
     };
 
     suite.test("mceTableInsertColAfter command", function (editor) {
+      editor.focus();
       editor.setContent('<table><tr><td>1</td></tr><tr><td>2</td></tr></table>');
       LegacyUnit.setSelection(editor, 'td', 0);
       editor.execCommand('mceTableInsertColAfter');
@@ -145,7 +146,7 @@ asynctest(
       plugins: 'table',
       indent: false,
       valid_styles: {
-        '*': 'width,height,vertical-align,text-align,float,border-color,background-color,border,padding,border-spacing,border-collapse'
+        '*': 'height,vertical-align,text-align,float,border-color,background-color,border,padding,border-spacing,border-collapse'
       },
       skin_url: '/project/src/skins/lightgray/dist/lightgray'
     }, success, failure);

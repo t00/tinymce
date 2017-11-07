@@ -25,6 +25,10 @@ define(
       return node && /^(LI|DT|DD)$/.test(node.nodeName);
     };
 
+    var isTableCellNode = function (node) {
+      return node && /^(TH|TD)$/.test(node.nodeName);
+    };
+
     var isBr = function (node) {
       return node && node.nodeName === 'BR';
     };
@@ -39,6 +43,10 @@ define(
 
     var isTextBlock = function (editor, node) {
       return node && !!editor.schema.getTextBlockElements()[node.nodeName];
+    };
+
+    var isBlock = function (node, blockElements) {
+      return node && node.nodeName in blockElements;
     };
 
     var isBogusBr = function (dom, node) {
@@ -71,10 +79,12 @@ define(
       isTextNode: isTextNode,
       isListNode: isListNode,
       isListItemNode: isListItemNode,
+      isTableCellNode: isTableCellNode,
       isBr: isBr,
       isFirstChild: isFirstChild,
       isLastChild: isLastChild,
       isTextBlock: isTextBlock,
+      isBlock: isBlock,
       isBogusBr: isBogusBr,
       isEmpty: isEmpty,
       isChildOfBody: isChildOfBody

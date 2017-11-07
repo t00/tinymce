@@ -24,6 +24,7 @@ asynctest(
     };
 
     suite.test('Wrap single root text node in P', function (editor) {
+      editor.focus();
       editor.getBody().innerHTML = 'abcd';
       LegacyUnit.setSelection(editor, 'body', 2);
       pressArrowKey(editor);
@@ -84,6 +85,13 @@ asynctest(
       LegacyUnit.equal(HtmlUtils.cleanHtml(body.innerHTML), '<div>abcd</div><div>abcd</div>');
       LegacyUnit.equal(editor.selection.getNode().nodeName, 'DIV');
       LegacyUnit.equal(body.childNodes.length, 2);
+    });
+
+    suite.test('Wrap single root text node in P but not table sibling', function (editor) {
+      editor.getBody().innerHTML = '<span data-mce-type="bookmark">a</span>';
+      LegacyUnit.setSelection(editor, 'body', 0);
+      pressArrowKey(editor);
+      LegacyUnit.equal(HtmlUtils.cleanHtml(editor.getBody().innerHTML), '<span data-mce-type="bookmark">a</span>');
     });
 
     TinyLoader.setup(function (editor, onSuccess, onFailure) {

@@ -21,36 +21,50 @@
 define(
   'tinymce.core.EditorManager',
   [
+    'ephox.katamari.api.Arr',
+    'ephox.katamari.api.Type',
+    'global!document',
+    'global!window',
     'tinymce.core.AddOnManager',
-    'tinymce.core.dom.DomQuery',
-    'tinymce.core.dom.DOMUtils',
     'tinymce.core.Editor',
     'tinymce.core.Env',
     'tinymce.core.ErrorReporter',
-    'tinymce.core.FocusManager',
     'tinymce.core.LegacyInput',
+    'tinymce.core.dom.DOMUtils',
+    'tinymce.core.dom.DomQuery',
+    'tinymce.core.focus.FocusController',
     'tinymce.core.util.I18n',
     'tinymce.core.util.Observable',
     'tinymce.core.util.Promise',
     'tinymce.core.util.Tools',
     'tinymce.core.util.URI'
   ],
-  function (AddOnManager, DomQuery, DOMUtils, Editor, Env, ErrorReporter, FocusManager, LegacyInput, I18n, Observable, Promise, Tools, URI) {
+  function (
+    Arr, Type, document, window, AddOnManager, Editor, Env, ErrorReporter, LegacyInput, DOMUtils, DomQuery, FocusController, I18n, Observable, Promise, Tools,
+    URI
+  ) {
     var DOM = DOMUtils.DOM;
     var explode = Tools.explode, each = Tools.each, extend = Tools.extend;
     var instanceCounter = 0, beforeUnloadDelegate, EditorManager, boundGlobalEvents = false;
+    var legacyEditors = [], editors = [];
 
-    function globalEventDelegate(e) {
-      each(EditorManager.editors, function (editor) {
+    var isValidLegacyKey = function (id) {
+      // In theory we could filter out any editor id:s that clash
+      // with array prototype items but that could break existing integrations
+      return id !== 'length';
+    };
+
+    var globalEventDelegate = function (e) {
+      each(EditorManager.get(), function (editor) {
         if (e.type === 'scroll') {
           editor.fire('ScrollWindow', e);
         } else {
           editor.fire('ResizeWindow', e);
         }
       });
-    }
+    };
 
-    function toggleGlobalEvents(editors, state) {
+    var toggleGlobalEvents = function (state) {
       if (state !== boundGlobalEvents) {
         if (state) {
           DomQuery(window).on('resize scroll', globalEventDelegate);
@@ -60,35 +74,37 @@ define(
 
         boundGlobalEvents = state;
       }
-    }
+    };
 
-    function removeEditorFromList(editor) {
-      var editors = EditorManager.editors, removedFromList;
+    var removeEditorFromList = function (targetEditor) {
+      var oldEditors = editors;
 
-      delete editors[editor.id];
-
-      for (var i = 0; i < editors.length; i++) {
-        if (editors[i] == editor) {
-          editors.splice(i, 1);
-          removedFromList = true;
+      delete legacyEditors[targetEditor.id];
+      for (var i = 0; i < legacyEditors.length; i++) {
+        if (legacyEditors[i] === targetEditor) {
+          legacyEditors.splice(i, 1);
           break;
         }
       }
 
+      editors = Arr.filter(editors, function (editor) {
+        return targetEditor !== editor;
+      });
+
       // Select another editor since the active one was removed
-      if (EditorManager.activeEditor == editor) {
-        EditorManager.activeEditor = editors[0];
+      if (EditorManager.activeEditor === targetEditor) {
+        EditorManager.activeEditor = editors.length > 0 ? editors[0] : null;
       }
 
       // Clear focusedEditor if necessary, so that we don't try to blur the destroyed editor
-      if (EditorManager.focusedEditor == editor) {
+      if (EditorManager.focusedEditor === targetEditor) {
         EditorManager.focusedEditor = null;
       }
 
-      return removedFromList;
-    }
+      return oldEditors.length !== editors.length;
+    };
 
-    function purgeDestroyedEditor(editor) {
+    var purgeDestroyedEditor = function (editor) {
       // User has manually destroyed the editor lets clean up the mess
       if (editor && editor.initialized && !(editor.getContainer() || editor.getBody()).parentNode) {
         removeEditorFromList(editor);
@@ -99,9 +115,11 @@ define(
       }
 
       return editor;
-    }
+    };
 
     EditorManager = {
+      defaultSettings: {},
+
       /**
        * Dom query instance.
        *
@@ -135,15 +153,12 @@ define(
       releaseDate: '@@releaseDate@@',
 
       /**
-       * Collection of editor instances.
+       * Collection of editor instances. Deprecated use tinymce.get() instead.
        *
        * @property editors
        * @type Object
-       * @example
-       * for (edId in tinymce.editors)
-       *     tinymce.editors[edId].save();
        */
-      editors: [],
+      editors: legacyEditors,
 
       /**
        * Collection of language pack data.
@@ -163,6 +178,8 @@ define(
        * tinymce.EditorManager.activeEditor.selection.getContent();
        */
       activeEditor: null,
+
+      settings: {},
 
       setup: function () {
         var self = this, baseURL, documentBaseURL, suffix = "", preInit, src;
@@ -251,7 +268,7 @@ define(
          */
         self.suffix = suffix;
 
-        self.focusManager = new FocusManager(self);
+        FocusController.setup(self);
       },
 
       /**
@@ -310,11 +327,11 @@ define(
           ' '
         );
 
-        function isInvalidInlineTarget(settings, elm) {
+        var isInvalidInlineTarget = function (settings, elm) {
           return settings.inline && elm.tagName.toLowerCase() in invalidInlineTargets;
-        }
+        };
 
-        function createId(elm) {
+        var createId = function (elm) {
           var id = elm.id;
 
           // Use element id, or unique name or generate a unique id
@@ -332,9 +349,9 @@ define(
           }
 
           return id;
-        }
+        };
 
-        function execCallback(name) {
+        var execCallback = function (name) {
           var callback = settings[name];
 
           if (!callback) {
@@ -342,13 +359,13 @@ define(
           }
 
           return callback.apply(self, Array.prototype.slice.call(arguments, 2));
-        }
+        };
 
-        function hasClass(elm, className) {
+        var hasClass = function (elm, className) {
           return className.constructor === RegExp ? className.test(elm.className) : DOM.hasClass(elm, className);
-        }
+        };
 
-        function findTargets(settings) {
+        var findTargets = function (settings) {
           var l, targets = [];
 
           if (Env.ie && Env.ie < 11) {
@@ -412,16 +429,16 @@ define(
           }
 
           return targets;
-        }
+        };
 
         var provideResults = function (editors) {
           result = editors;
         };
 
-        function initEditors() {
+        var initEditors = function () {
           var initCount = 0, editors = [], targets;
 
-          function createEditor(id, settings, targetElm) {
+          var createEditor = function (id, settings, targetElm) {
             var editor = new Editor(id, settings, self);
 
             editors.push(editor);
@@ -434,7 +451,7 @@ define(
 
             editor.targetElm = editor.targetElm || targetElm;
             editor.render();
-          }
+          };
 
           DOM.unbind(window, 'ready', initEditors);
           execCallback('onpageload');
@@ -476,7 +493,7 @@ define(
               }
             });
           }
-        }
+        };
 
         self.settings = settings;
         DOM.bind(window, 'ready', initEditors);
@@ -497,10 +514,15 @@ define(
        *
        * @method get
        * @param {String/Number} id Editor instance id or index to return.
-       * @return {tinymce.Editor} Editor instance to return.
+       * @return {tinymce.Editor/Array} Editor instance to return or array of editor instances.
        * @example
-       * // Adds an onclick event to an editor by id (shorter version)
+       * // Adds an onclick event to an editor by id
        * tinymce.get('mytextbox').on('click', function(e) {
+       *    ed.windowManager.alert('Hello world!');
+       * });
+       *
+       * // Adds an onclick event to an editor by index
+       * tinymce.get(0).on('click', function(e) {
        *    ed.windowManager.alert('Hello world!');
        * });
        *
@@ -510,11 +532,17 @@ define(
        * });
        */
       get: function (id) {
-        if (!arguments.length) {
-          return this.editors;
+        if (arguments.length === 0) {
+          return editors.slice(0);
+        } else if (Type.isString(id)) {
+          return Arr.find(editors, function (editor) {
+            return editor.id === id;
+          }).getOr(null);
+        } else if (Type.isNumber(id)) {
+          return editors[id] ? editors[id] : null;
+        } else {
+          return null;
         }
-
-        return id in this.editors ? this.editors[id] : null;
       },
 
       /**
@@ -525,13 +553,28 @@ define(
        * @return {tinymce.Editor} The same instance that got passed in.
        */
       add: function (editor) {
-        var self = this, editors = self.editors;
+        var self = this, existingEditor;
 
-        // Add named and index editor instance
-        editors[editor.id] = editor;
-        editors.push(editor);
+        // Prevent existing editors from beeing added again this could happen
+        // if a user calls createEditor then render or add multiple times.
+        existingEditor = legacyEditors[editor.id];
+        if (existingEditor === editor) {
+          return editor;
+        }
 
-        toggleGlobalEvents(editors, true);
+        if (self.get(editor.id) === null) {
+          // Add to legacy editors array, this is what breaks in HTML5 where ID:s with numbers are valid
+          // We can't get rid of this strange object and array at the same time since it seems to be used all over the web
+          if (isValidLegacyKey(editor.id)) {
+            legacyEditors[editor.id] = editor;
+          }
+
+          legacyEditors.push(editor);
+
+          editors.push(editor);
+        }
+
+        toggleGlobalEvents(true);
 
         // Doesn't call setActive method since we don't want
         // to fire a bunch of activate/deactivate calls while initializing
@@ -583,7 +626,7 @@ define(
        * @return {tinymce.Editor} The editor that got passed in will be return if it was found otherwise null.
        */
       remove: function (selector) {
-        var self = this, i, editors = self.editors, editor;
+        var self = this, i, editor;
 
         // Remove all editors
         if (!selector) {
@@ -595,11 +638,11 @@ define(
         }
 
         // Remove editors by selector
-        if (typeof selector == "string") {
+        if (Type.isString(selector)) {
           selector = selector.selector || selector;
 
           each(DOM.select(selector), function (elm) {
-            editor = editors[elm.id];
+            editor = self.get(elm.id);
 
             if (editor) {
               self.remove(editor);
@@ -613,7 +656,7 @@ define(
         editor = selector;
 
         // Not in the collection
-        if (!editors[editor.id]) {
+        if (Type.isNull(self.get(editor.id))) {
           return null;
         }
 
@@ -621,13 +664,13 @@ define(
           self.fire('RemoveEditor', { editor: editor });
         }
 
-        if (!editors.length) {
+        if (editors.length === 0) {
           DOM.unbind(window, 'beforeunload', beforeUnloadDelegate);
         }
 
         editor.remove();
 
-        toggleGlobalEvents(editors, editors.length > 0);
+        toggleGlobalEvents(editors.length > 0);
 
         return editor;
       },
@@ -692,7 +735,7 @@ define(
        * tinyMCE.triggerSave();
        */
       triggerSave: function () {
-        each(this.editors, function (editor) {
+        each(editors, function (editor) {
           editor.save();
         });
       },

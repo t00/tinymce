@@ -18,9 +18,10 @@ define(
     'tinymce.core.caret.CaretPosition',
     'tinymce.core.keyboard.BoundaryCaret',
     'tinymce.core.keyboard.BoundaryLocation',
-    'tinymce.core.keyboard.InlineUtils'
+    'tinymce.core.keyboard.InlineUtils',
+    'tinymce.core.selection.WordSelection'
   ],
-  function (Arr, Cell, Fun, CaretContainerRemove, CaretPosition, BoundaryCaret, BoundaryLocation, InlineUtils) {
+  function (Arr, Cell, Fun, CaretContainerRemove, CaretPosition, BoundaryCaret, BoundaryLocation, InlineUtils, WordSelection) {
     var setCaretPosition = function (editor, pos) {
       var rng = editor.dom.createRng();
       rng.setStart(pos.container(), pos.offset());
@@ -34,9 +35,9 @@ define(
 
     var setSelected = function (state, elm) {
       if (state) {
-        elm.setAttribute('data-mce-selected', '1');
+        elm.setAttribute('data-mce-selected', 'inline-boundary');
       } else {
-        elm.removeAttribute('data-mce-selected', '1');
+        elm.removeAttribute('data-mce-selected');
       }
     };
 
@@ -50,15 +51,16 @@ define(
     var findLocation = function (editor, caret, forward) {
       var rootNode = editor.getBody();
       var from = CaretPosition.fromRangeStart(editor.selection.getRng());
-      var location = forward ? BoundaryLocation.nextLocation(rootNode, from) : BoundaryLocation.prevLocation(rootNode, from);
+      var isInlineTarget = Fun.curry(InlineUtils.isInlineTarget, editor);
+      var location = BoundaryLocation.findLocation(forward, isInlineTarget, rootNode, from);
       return location.bind(function (location) {
         return renderCaretLocation(editor, caret, location);
       });
     };
 
-    var toggleInlines = function (dom, elms) {
-      var selectedInlines = dom.select('a[href][data-mce-selected],code[data-mce-selected]');
-      var targetInlines = Arr.filter(elms, InlineUtils.isInlineTarget);
+    var toggleInlines = function (isInlineTarget, dom, elms) {
+      var selectedInlines = Arr.filter(dom.select('*[data-mce-selected="inline-boundary"]'), isInlineTarget);
+      var targetInlines = Arr.filter(elms, isInlineTarget);
       Arr.each(Arr.difference(selectedInlines, targetInlines), Fun.curry(setSelected, false));
       Arr.each(Arr.difference(targetInlines, selectedInlines), Fun.curry(setSelected, true));
     };
@@ -73,12 +75,12 @@ define(
       }
     };
 
-    var renderInsideInlineCaret = function (editor, caret, elms) {
+    var renderInsideInlineCaret = function (isInlineTarget, editor, caret, elms) {
       if (editor.selection.isCollapsed()) {
-        var inlines = Arr.filter(elms, InlineUtils.isInlineTarget);
+        var inlines = Arr.filter(elms, isInlineTarget);
         Arr.each(inlines, function (inline) {
           var pos = CaretPosition.fromRangeStart(editor.selection.getRng());
-          BoundaryLocation.readLocation(editor.getBody(), pos).bind(function (location) {
+          BoundaryLocation.readLocation(isInlineTarget, editor.getBody(), pos).bind(function (location) {
             return renderCaretLocation(editor, caret, location);
           });
         });
@@ -91,14 +93,21 @@ define(
       };
     };
 
+    var moveWord = function (forward, editor, caret) {
+      return function () {
+        return isFeatureEnabled(editor) ? WordSelection.moveByWord(forward, editor) : false;
+      };
+    };
+
     var setupSelectedState = function (editor) {
       var caret = new Cell(null);
+      var isInlineTarget = Fun.curry(InlineUtils.isInlineTarget, editor);
 
       editor.on('NodeChange', function (e) {
         if (isFeatureEnabled(editor)) {
-          toggleInlines(editor.dom, e.parents);
+          toggleInlines(isInlineTarget, editor.dom, e.parents);
           safeRemoveCaretContainer(editor, caret);
-          renderInsideInlineCaret(editor, caret, e.parents);
+          renderInsideInlineCaret(isInlineTarget, editor, caret, e.parents);
         }
       });
 
@@ -107,6 +116,8 @@ define(
 
     return {
       move: move,
+      moveNextWord: Fun.curry(moveWord, true),
+      movePrevWord: Fun.curry(moveWord, false),
       setupSelectedState: setupSelectedState,
       setCaretPosition: setCaretPosition
     };

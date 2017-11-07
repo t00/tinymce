@@ -21,8 +21,8 @@ asynctest(
     var success = arguments[arguments.length - 2];
     var failure = arguments[arguments.length - 1];
 
-    ContextMenuPlugin();
     ModernTheme();
+    ContextMenuPlugin();
 
     var sContextMenuClickInMiddleOf = function (editor, elementPath) {
       return Step.sync(function () {
@@ -62,13 +62,6 @@ asynctest(
               ]
             });
           }))
-        ])),
-
-        Logger.t('Select image by right click + context menu on it', GeneralSteps.sequence([
-          tinyApis.sSetContent('<p><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAAAAACH5BAAAAAAALAAAAAABAAEAAAICTAEAOw==" width="100" height="100"></p>'),
-          tinyApis.sSetCursor([0], 0),
-          sContextMenuClickInMiddleOf(editor, [0, 0]),
-          tinyApis.sAssertSelection([0], 0, [0], 1)
         ])),
 
         Logger.t('Do not select image if the context menu click is inside the currently selected range', GeneralSteps.sequence([

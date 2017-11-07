@@ -10,11 +10,12 @@ asynctest(
     'ephox.mcagar.api.TinyLoader',
     'ephox.sugar.api.node.Element',
     'ephox.sugar.api.properties.Css',
-    'ephox.sugar.api.search.Selectors',
+    'ephox.sugar.api.search.SelectorFind',
+    'global!window',
     'tinymce.core.EditorView',
     'tinymce.themes.modern.Theme'
   ],
-  function (Assertions, GeneralSteps, Logger, Pipeline, Step, TinyApis, TinyLoader, Element, Css, Selectors, EditorView, Theme) {
+  function (Assertions, GeneralSteps, Logger, Pipeline, Step, TinyApis, TinyLoader, Element, Css, SelectorFind, window, EditorView, Theme) {
     var success = arguments[arguments.length - 2];
     var failure = arguments[arguments.length - 1];
 
@@ -25,7 +26,7 @@ asynctest(
     };
 
     var getIframeClientRect = function (editor) {
-      return Selectors.one('iframe', Element.fromDom(editor.getContentAreaContainer())).map(function (elm) {
+      return SelectorFind.descendant(Element.fromDom(editor.getContentAreaContainer()), 'iframe').map(function (elm) {
         return elm.dom().getBoundingClientRect();
       }).getOrDie();
     };

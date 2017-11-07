@@ -11,42 +11,66 @@
 define(
   'tinymce.core.delete.DeleteUtils',
   [
-    'ephox.katamari.api.Arr',
     'ephox.katamari.api.Option',
+    'ephox.katamari.api.Options',
     'ephox.sugar.api.dom.Compare',
     'ephox.sugar.api.node.Element',
-    'ephox.sugar.api.node.Node',
-    'ephox.sugar.api.search.PredicateFind'
+    'ephox.sugar.api.search.PredicateFind',
+    'tinymce.core.caret.CaretFinder',
+    'tinymce.core.dom.ElementType',
+    'tinymce.core.keyboard.InlineUtils'
   ],
-  function (Arr, Option, Compare, Element, Node, PredicateFind) {
-    var toLookup = function (names) {
-      var lookup = Arr.foldl(names, function (acc, name) {
-        acc[name] = true;
-        return acc;
-      }, { });
-
-      return function (elm) {
-        return lookup[Node.name(elm)] === true;
-      };
-    };
-
-    var isTextBlock = toLookup([
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'address', 'pre', 'form', 'blockquote', 'center',
-      'dir', 'fieldset', 'header', 'footer', 'article', 'section', 'hgroup', 'aside', 'nav', 'figure'
-    ]);
-
+  function (Option, Options, Compare, Element, PredicateFind, CaretFinder, ElementType, InlineUtils) {
     var isBeforeRoot = function (rootNode) {
       return function (elm) {
         return Compare.eq(rootNode, Element.fromDom(elm.dom().parentNode));
       };
     };
 
-    var getParentTextBlock = function (rootNode, elm) {
-      return Compare.contains(rootNode, elm) ? PredicateFind.closest(elm, isTextBlock, isBeforeRoot(rootNode)) : Option.none();
+    var getParentBlock = function (rootNode, elm) {
+      return Compare.contains(rootNode, elm) ? PredicateFind.closest(elm, function (element) {
+        return ElementType.isTextBlock(element) || ElementType.isListItem(element);
+      }, isBeforeRoot(rootNode)) : Option.none();
+    };
+
+    var placeCaretInEmptyBody = function (editor) {
+      var body = editor.getBody();
+      var node = body.firstChild && editor.dom.isBlock(body.firstChild) ? body.firstChild : body;
+      editor.selection.setCursorLocation(node, 0);
+    };
+
+    var paddEmptyBody = function (editor) {
+      if (editor.dom.isEmpty(editor.getBody())) {
+        editor.setContent('');
+        placeCaretInEmptyBody(editor);
+      }
+    };
+
+    var willDeleteLastPositionInElement = function (forward, fromPos, elm) {
+      return Options.liftN([
+        CaretFinder.firstPositionIn(elm),
+        CaretFinder.lastPositionIn(elm)
+      ], function (firstPos, lastPos) {
+        var normalizedFirstPos = InlineUtils.normalizePosition(true, firstPos);
+        var normalizedLastPos = InlineUtils.normalizePosition(false, lastPos);
+        var normalizedFromPos = InlineUtils.normalizePosition(false, fromPos);
+
+        if (forward) {
+          return CaretFinder.nextPosition(elm, normalizedFromPos).map(function (nextPos) {
+            return nextPos.isEqual(normalizedLastPos) && fromPos.isEqual(normalizedFirstPos);
+          }).getOr(false);
+        } else {
+          return CaretFinder.prevPosition(elm, normalizedFromPos).map(function (prevPos) {
+            return prevPos.isEqual(normalizedFirstPos) && fromPos.isEqual(normalizedLastPos);
+          }).getOr(false);
+        }
+      }).getOr(true);
     };
 
     return {
-      getParentTextBlock: getParentTextBlock
+      getParentBlock: getParentBlock,
+      paddEmptyBody: paddEmptyBody,
+      willDeleteLastPositionInElement: willDeleteLastPositionInElement
     };
   }
 );

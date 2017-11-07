@@ -68,7 +68,7 @@ asynctest(
 
     var sGetRng = function (editor, forward) {
       return Step.sync(function () {
-        var rng = editor.selection.getRng(rng, forward);
+        editor.selection.getRng();
       });
     };
 
@@ -93,6 +93,7 @@ asynctest(
     TinyLoader.setup(function (editor, onSuccess, onFailure) {
       var tinyApis = TinyApis(editor);
       Pipeline.async({}, [
+        tinyApis.sFocus,
         Logger.t('SetSelectionRange event', GeneralSteps.sequence([
           mBindEvent(editor, 'SetSelectionRange'),
           tinyApis.sSetContent('<p>a</p>'),

@@ -31,16 +31,33 @@ define(
   function (Node, Schema, SaxParser, Tools) {
     var makeMap = Tools.makeMap, each = Tools.each, explode = Tools.explode, extend = Tools.extend;
 
-    var paddEmptyNode = function (settings, node) {
-      if (settings.padd_empty_with_br) {
+    var paddEmptyNode = function (settings, args, blockElements, node) {
+      var brPreferred = settings.padd_empty_with_br || args.insert;
+
+      if (brPreferred && blockElements[node.name]) {
         node.empty().append(new Node('br', '1')).shortEnded = true;
       } else {
         node.empty().append(new Node('#text', '3')).value = '\u00a0';
       }
     };
 
+    var isPaddedWithNbsp = function (node) {
+      return hasOnlyChild(node, '#text') && node.firstChild.value === '\u00a0';
+    };
+
     var hasOnlyChild = function (node, name) {
-      return node && node.firstChild === node.lastChild && node.firstChild.name === name;
+      return node && node.firstChild && node.firstChild === node.lastChild && node.firstChild.name === name;
+    };
+
+    var isPadded = function (schema, node) {
+      var rule = schema.getElementRule(node.name);
+      return rule && rule.paddEmpty;
+    };
+
+    var isEmpty = function (schema, nonEmptyElements, whitespaceElements, node) {
+      return node.isEmpty(nonEmptyElements, whitespaceElements, function (node) {
+        return isPadded(schema, node);
+      });
     };
 
     /**
@@ -59,7 +76,7 @@ define(
       settings.root_name = settings.root_name || 'body';
       self.schema = schema = schema || new Schema();
 
-      function fixInvalidChildren(nodes) {
+      var fixInvalidChildren = function (nodes) {
         var ni, node, parent, parents, newParent, currentNode, tempNode, childNode, i;
         var nonEmptyElements, whitespaceElements, nonSplitableElements, textBlockElements, specialElements, sibling, nextNode;
 
@@ -132,7 +149,7 @@ define(
               currentNode = tempNode;
             }
 
-            if (!newParent.isEmpty(nonEmptyElements, whitespaceElements)) {
+            if (!isEmpty(schema, nonEmptyElements, whitespaceElements, newParent)) {
               parent.insert(newParent, parents[0], true);
               parent.insert(node, newParent);
             } else {
@@ -141,7 +158,7 @@ define(
 
             // Check if the element is empty by looking through it's contents and special treatment for <p><br /></p>
             parent = parents[0];
-            if (parent.isEmpty(nonEmptyElements, whitespaceElements) || hasOnlyChild(parent, 'br')) {
+            if (isEmpty(schema, nonEmptyElements, whitespaceElements, parent) || hasOnlyChild(parent, 'br')) {
               parent.empty().remove();
             }
           } else if (node.parent) {
@@ -176,7 +193,7 @@ define(
             }
           }
         }
-      }
+      };
 
       /**
        * Runs the specified node though the element and attributes filters.
@@ -304,12 +321,12 @@ define(
         allWhiteSpaceRegExp = /[ \t\r\n]+/g;
         isAllWhiteSpaceRegExp = /^[ \t\r\n]+$/;
 
-        function addRootBlocks() {
+        var addRootBlocks = function () {
           var node = rootNode.firstChild, next, rootBlockNode;
 
           // Removes whitespace at beginning and end of block so:
           // <p> x </p> -> <p>x</p>
-          function trim(rootBlockNode) {
+          var trim = function (rootBlockNode) {
             if (rootBlockNode) {
               node = rootBlockNode.firstChild;
               if (node && node.type == 3) {
@@ -321,7 +338,7 @@ define(
                 node.value = node.value.replace(endWhiteSpaceRegExp, '');
               }
             }
-          }
+          };
 
           // Check if rootBlock is valid within rootNode for example if P is valid in H1 if H1 is the contentEditabe root
           if (!schema.isValidChild(rootNode.name, rootBlockName.toLowerCase())) {
@@ -351,9 +368,9 @@ define(
           }
 
           trim(rootBlockNode);
-        }
+        };
 
-        function createNode(name, type) {
+        var createNode = function (name, type) {
           var node = new Node(name, type), list;
 
           if (name in nodeFilters) {
@@ -367,9 +384,9 @@ define(
           }
 
           return node;
-        }
+        };
 
-        function removeWhitespaceBefore(node) {
+        var removeWhitespaceBefore = function (node) {
           var textNode, textNodeNext, textVal, sibling, blockElements = schema.getBlockElements();
 
           for (textNode = node.prev; textNode && textNode.type === 3;) {
@@ -401,9 +418,9 @@ define(
             textNode.remove();
             textNode = sibling;
           }
-        }
+        };
 
-        function cloneAndExcludeBlocks(input) {
+        var cloneAndExcludeBlocks = function (input) {
           var name, output = {};
 
           for (name in input) {
@@ -413,7 +430,7 @@ define(
           }
 
           return output;
-        }
+        };
 
         parser = new SaxParser({
           validate: validate,
@@ -598,27 +615,24 @@ define(
                 isInWhiteSpacePreservedElement = false;
               }
 
-              // Handle empty nodes
-              if (elementRule.removeEmpty || elementRule.paddEmpty) {
-                if (node.isEmpty(nonEmptyElements, whiteSpaceElements)) {
-                  if (elementRule.paddEmpty) {
-                    paddEmptyNode(settings, node);
+              if (elementRule.removeEmpty && isEmpty(schema, nonEmptyElements, whiteSpaceElements, node)) {
+                // Leave nodes that have a name like <a name="name">
+                if (!node.attributes.map.name && !node.attributes.map.id) {
+                  tempNode = node.parent;
+
+                  if (blockElements[node.name]) {
+                    node.empty().remove();
                   } else {
-                    // Leave nodes that have a name like <a name="name">
-                    if (!node.attributes.map.name && !node.attributes.map.id) {
-                      tempNode = node.parent;
-
-                      if (blockElements[node.name]) {
-                        node.empty().remove();
-                      } else {
-                        node.unwrap();
-                      }
-
-                      node = tempNode;
-                      return;
-                    }
+                    node.unwrap();
                   }
+
+                  node = tempNode;
+                  return;
                 }
+              }
+
+              if (elementRule.paddEmpty && (isPaddedWithNbsp(node) || isEmpty(schema, nonEmptyElements, whiteSpaceElements, node))) {
+                paddEmptyNode(settings, args, blockElements, node);
               }
 
               node = node.parent;
@@ -693,7 +707,7 @@ define(
       // make it possible to place the caret inside empty blocks. This logic tries to remove
       // these elements and keep br elements that where intended to be there intact
       if (settings.remove_trailing_brs) {
-        self.addNodeFilter('br', function (nodes) {
+        self.addNodeFilter('br', function (nodes, _, args) {
           var i, l = nodes.length, node, blockElements = extend({}, schema.getBlockElements());
           var nonEmptyElements = schema.getNonEmptyElements(), parent, lastParent, prev, prevName;
           var whiteSpaceElements = schema.getNonEmptyElements();
@@ -735,7 +749,7 @@ define(
                 node.remove();
 
                 // Is the parent to be considered empty after we removed the BR
-                if (parent.isEmpty(nonEmptyElements, whiteSpaceElements)) {
+                if (isEmpty(schema, nonEmptyElements, whiteSpaceElements, parent)) {
                   elementRule = schema.getElementRule(parent.name);
 
                   // Remove or padd the element depending on schema rule
@@ -743,7 +757,7 @@ define(
                     if (elementRule.removeEmpty) {
                       parent.remove();
                     } else if (elementRule.paddEmpty) {
-                      paddEmptyNode(settings, parent);
+                      paddEmptyNode(settings, args, blockElements, parent);
                     }
                   }
                 }

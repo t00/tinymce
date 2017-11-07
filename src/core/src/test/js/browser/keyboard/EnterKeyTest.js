@@ -5,12 +5,11 @@ asynctest(
     'ephox.mcagar.api.LegacyUnit',
     'ephox.mcagar.api.TinyLoader',
     'tinymce.core.Env',
-    'tinymce.core.FocusManager',
     'tinymce.core.test.HtmlUtils',
     'tinymce.core.util.Tools',
     'tinymce.themes.modern.Theme'
   ],
-  function (Pipeline, LegacyUnit, TinyLoader, Env, FocusManager, HtmlUtils, Tools, Theme) {
+  function (Pipeline, LegacyUnit, TinyLoader, Env, HtmlUtils, Tools, Theme) {
     var success = arguments[arguments.length - 2];
     var failure = arguments[arguments.length - 1];
     var suite = LegacyUnit.createSuite();
@@ -209,8 +208,16 @@ asynctest(
       editor.setContent('<h1>abcd</h1><p>efgh</p>');
       LegacyUnit.setSelection(editor, 'h1', 2, 'p', 2);
       pressEnter(editor);
-      LegacyUnit.equal(editor.getContent(), '<h1>abgh</h1>');
+      LegacyUnit.equal(editor.getContent(), '<h1>ab</h1><h1>gh</h1>');
       LegacyUnit.equal(editor.selection.getNode().nodeName, 'H1');
+    });
+
+    suite.test('Enter at a range between LI elements', function (editor) {
+      editor.setContent('<ul><li>abcd</li><li>efgh</li></ul>');
+      LegacyUnit.setSelection(editor, 'li:nth-child(1)', 2, 'li:nth-child(2)', 2);
+      pressEnter(editor);
+      LegacyUnit.equal(editor.getContent(), '<ul><li>ab</li><li>gh</li></ul>');
+      LegacyUnit.equal(editor.selection.getNode().nodeName, 'LI');
     });
 
     suite.test('Enter at end of H1 in HGROUP', function (editor) {
@@ -349,6 +356,15 @@ asynctest(
       LegacyUnit.setSelection(editor, 'p:nth-child(2)', 0);
       pressEnter(editor);
       LegacyUnit.equal(editor.getContent(), '<blockquote><p>abc</p></blockquote><p>\u00a0</p><blockquote><p>123</p></blockquote>');
+      editor.settings.forced_root_block = 'p';
+    });
+
+    suite.test('Enter in empty P at in the middle of a blockquote and end_container_on_empty_block: true', function (editor) {
+      editor.settings.end_container_on_empty_block = true;
+      editor.getBody().innerHTML = '<blockquote><p>abc</p><p>\u00a0</p><p><br></p><p>123</p></blockquote>';
+      LegacyUnit.setSelection(editor, 'p:nth-child(3)', 0);
+      pressEnter(editor);
+      LegacyUnit.equal(editor.getContent(), '<blockquote><p>abc</p><p>\u00a0</p></blockquote><p>\u00a0</p><blockquote><p>123</p></blockquote>');
       editor.settings.forced_root_block = 'p';
     });
 
@@ -650,6 +666,27 @@ asynctest(
       var rng = editor.selection.getRng(true);
       LegacyUnit.equal(rng.startContainer.nodeName, 'B');
       LegacyUnit.equal(rng.startContainer.data !== ' ', true);
+    });
+
+    suite.test('Enter inside first li with block inside', function (editor) {
+      editor.getBody().innerHTML = '<ul><li><p><br /></p></li><li><p>b</p></><li>c</></ul>';
+      LegacyUnit.setSelection(editor, 'p', 0);
+      pressEnter(editor);
+      LegacyUnit.equal(editor.getContent(), '<p>\u00a0</p><ul><li><p>b</p></li><li>c</li></ul>');
+    });
+
+    suite.test('Enter inside middle li with block inside', function (editor) {
+      editor.getBody().innerHTML = '<ul><li>a</><li><p><br /></p></><li>c</></ul>';
+      LegacyUnit.setSelection(editor, 'p', 0);
+      pressEnter(editor);
+      LegacyUnit.equal(editor.getContent(), '<ul><li>a</li></ul><p>\u00a0</p><ul><li>c</li></ul>');
+    });
+
+    suite.test('Enter inside last li with block inside', function (editor) {
+      editor.getBody().innerHTML = '<ul><li>a</li><li>b</><li><p><br /></p></li></ul>';
+      LegacyUnit.setSelection(editor, 'p', 0);
+      pressEnter(editor);
+      LegacyUnit.equal(editor.getContent(), '<ul><li>a</li><li>b</li></ul><p>\u00a0</p>');
     });
 
     TinyLoader.setup(function (editor, onSuccess, onFailure) {

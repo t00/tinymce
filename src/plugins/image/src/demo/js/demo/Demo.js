@@ -29,7 +29,13 @@ define(
         theme: "modern",
         skin_url: "../../../../../skins/lightgray/dist/lightgray",
         plugins: "image code",
-        toolbar: "image code",
+        toolbar: "undo redo | image code",
+        image_caption: true,
+        image_advtab: true,
+        images_upload_url: 'postAcceptor.php',
+        file_picker_callback: function (callback, value, meta) {
+          callback('https://www.google.com/logos/google.jpg', { alt: 'My alt text' });
+        },
         height: 600
       });
     };

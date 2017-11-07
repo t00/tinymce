@@ -17,11 +17,11 @@
 define(
   'tinymce.core.NodeChange',
   [
-    "tinymce.core.dom.RangeUtils",
-    "tinymce.core.Env",
-    "tinymce.core.util.Delay"
+    'tinymce.core.Env',
+    'tinymce.core.selection.RangeCompare',
+    'tinymce.core.util.Delay'
   ],
-  function (RangeUtils, Env, Delay) {
+  function (Env, RangeCompare, Delay) {
     return function (editor) {
       var lastRng, lastPath = [];
 
@@ -31,7 +31,7 @@ define(
        * @private
        * @return {Boolean} True if the element path is the same false if it's not.
        */
-      function isSameElementPath(startElm) {
+      var isSameElementPath = function (startElm) {
         var i, currentPath;
 
         currentPath = editor.$(startElm).parentsUntil(editor.getBody()).add(startElm);
@@ -51,7 +51,7 @@ define(
         lastPath = currentPath;
 
         return false;
-      }
+      };
 
       // Gecko doesn't support the "selectionchange" event
       if (!('onselectionchange' in editor.getDoc())) {
@@ -70,7 +70,7 @@ define(
 
           // Always treat nodechange as a selectionchange since applying
           // formatting to the current range wouldn't update the range but it's parent
-          if (e.type == 'nodechange' || !RangeUtils.compareRanges(fakeRng, lastRng)) {
+          if (e.type == 'nodechange' || !RangeCompare.isEq(fakeRng, lastRng)) {
             editor.fire('SelectionChange');
           }
 
@@ -88,9 +88,10 @@ define(
       editor.on('SelectionChange', function () {
         var startElm = editor.selection.getStart(true);
 
+        // When focusout from after cef element to other input element the startelm can be undefined.
         // IE 8 will fire a selectionchange event with an incorrect selection
         // when focusing out of table cells. Click inside cell -> toolbar = Invalid SelectionChange event
-        if (!Env.range && editor.selection.isCollapsed()) {
+        if (!startElm || (!Env.range && editor.selection.isCollapsed())) {
           return;
         }
 

@@ -17,12 +17,31 @@
 define(
   'tinymce.core.InsertList',
   [
-    "tinymce.core.util.Tools",
-    "tinymce.core.caret.CaretWalker",
-    "tinymce.core.caret.CaretPosition"
+    'tinymce.core.caret.CaretPosition',
+    'tinymce.core.caret.CaretWalker',
+    'tinymce.core.dom.NodeType',
+    'tinymce.core.util.Tools'
   ],
-  function (Tools, CaretWalker, CaretPosition) {
-    var isListFragment = function (fragment) {
+  function (CaretPosition, CaretWalker, NodeType, Tools) {
+    var hasOnlyOneChild = function (node) {
+      return node.firstChild && node.firstChild === node.lastChild;
+    };
+
+    var isPaddingNode = function (node) {
+      return node.name === 'br' || node.value === '\u00a0';
+    };
+
+    var isPaddedEmptyBlock = function (schema, node) {
+      var blockElements = schema.getBlockElements();
+      return blockElements[node.name] && hasOnlyOneChild(node) && isPaddingNode(node.firstChild);
+    };
+
+    var isEmptyFragmentElement = function (schema, node) {
+      var nonEmptyElements = schema.getNonEmptyElements();
+      return node && (node.isEmpty(nonEmptyElements) || isPaddedEmptyBlock(schema, node));
+    };
+
+    var isListFragment = function (schema, fragment) {
       var firstChild = fragment.firstChild;
       var lastChild = fragment.lastChild;
 
@@ -33,6 +52,11 @@ define(
 
       // Skip mce_marker since it's likely <ul>..</ul><span id="mce_marker"></span>
       if (lastChild && lastChild.attr('id') === 'mce_marker') {
+        lastChild = lastChild.prev;
+      }
+
+      // Skip last child if it's an empty block
+      if (isEmptyFragmentElement(schema, lastChild)) {
         lastChild = lastChild.prev;
       }
 
@@ -72,12 +96,20 @@ define(
       });
     };
 
-    var isEmpty = function (elm) {
-      return !elm.firstChild;
+    var isPadding = function (node) {
+      return node.data === '\u00a0' || NodeType.isBr(node);
+    };
+
+    var isListItemPadded = function (node) {
+      return node && node.firstChild && node.firstChild === node.lastChild && isPadding(node.firstChild);
+    };
+
+    var isEmptyOrPadded = function (elm) {
+      return !elm.firstChild || isListItemPadded(elm);
     };
 
     var trimListItems = function (elms) {
-      return elms.length > 0 && isEmpty(elms[elms.length - 1]) ? elms.slice(0, -1) : elms;
+      return elms.length > 0 && isEmptyOrPadded(elms[elms.length - 1]) ? elms.slice(0, -1) : elms;
     };
 
     var getParentLi = function (dom, node) {

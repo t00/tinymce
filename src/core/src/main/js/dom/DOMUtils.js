@@ -22,26 +22,29 @@
 define(
   'tinymce.core.dom.DOMUtils',
   [
+    'global!document',
+    'global!window',
+    'tinymce.core.Env',
     'tinymce.core.dom.DomQuery',
     'tinymce.core.dom.EventUtils',
-    'tinymce.core.dom.Range',
+    'tinymce.core.dom.Position',
     'tinymce.core.dom.Sizzle',
     'tinymce.core.dom.StyleSheetLoader',
     'tinymce.core.dom.TreeWalker',
-    'tinymce.core.Env',
+    'tinymce.core.dom.TrimNode',
     'tinymce.core.html.Entities',
     'tinymce.core.html.Schema',
     'tinymce.core.html.Styles',
     'tinymce.core.util.Tools'
   ],
-  function (DomQuery, EventUtils, Range, Sizzle, StyleSheetLoader, TreeWalker, Env, Entities, Schema, Styles, Tools) {
+  function (document, window, Env, DomQuery, EventUtils, Position, Sizzle, StyleSheetLoader, TreeWalker, TrimNode, Entities, Schema, Styles, Tools) {
     // Shorten names
-    var each = Tools.each, is = Tools.is, grep = Tools.grep, trim = Tools.trim;
+    var each = Tools.each, is = Tools.is, grep = Tools.grep;
     var isIE = Env.ie;
     var simpleSelectorRe = /^([a-z0-9],?)+$/i;
     var whiteSpaceRegExp = /^[ \t\r\n]*$/;
 
-    function setupAttrHooks(domUtils, settings) {
+    var setupAttrHooks = function (domUtils, settings) {
       var attrHooks = {}, keepValues = settings.keep_values, keepUrlHook;
 
       keepUrlHook = {
@@ -88,9 +91,9 @@ define(
       }
 
       return attrHooks;
-    }
+    };
 
-    function updateInternalStyleAttr(domUtils, $elm) {
+    var updateInternalStyleAttr = function (domUtils, $elm) {
       var value = $elm.attr('style');
 
       value = domUtils.serializeStyle(domUtils.parseStyle(value), $elm[0].nodeName);
@@ -100,9 +103,9 @@ define(
       }
 
       $elm.attr('data-mce-style', value);
-    }
+    };
 
-    function nodeIndex(node, normalized) {
+    var nodeIndex = function (node, normalized) {
       var idx = 0, lastNodeType, nodeType;
 
       if (node) {
@@ -121,7 +124,7 @@ define(
       }
 
       return idx;
-    }
+    };
 
     /**
      * Constructs a new DOMUtils instance. Consult the Wiki for more details on settings etc for this class.
@@ -131,7 +134,7 @@ define(
      * @param {Document} doc Document reference to bind the utility class to.
      * @param {settings} settings Optional settings collection.
      */
-    function DOMUtils(doc, settings) {
+    var DOMUtils = function (doc, settings) {
       var self = this, blockElementsMap;
 
       self.doc = doc;
@@ -152,7 +155,7 @@ define(
       self.fixDoc(doc);
       self.events = settings.ownEvents ? new EventUtils(settings.proxy) : EventUtils.Event;
       self.attrHooks = setupAttrHooks(self, settings);
-      blockElementsMap = settings.schema ? settings.schema.getBlockElements() : {};
+      blockElementsMap = self.schema.getBlockElements();
       self.$ = DomQuery.overrideDefaults(function () {
         return {
           context: doc,
@@ -183,7 +186,7 @@ define(
 
         return !!blockElementsMap[node];
       };
-    }
+    };
 
     DOMUtils.prototype = {
       $$: function (elm) {
@@ -858,42 +861,7 @@ define(
        * @return {object} Absolute position of the specified element object with x, y fields.
        */
       getPos: function (elm, rootElm) {
-        var self = this, x = 0, y = 0, offsetParent, doc = self.doc, body = doc.body, pos;
-
-        elm = self.get(elm);
-        rootElm = rootElm || body;
-
-        if (elm) {
-          // Use getBoundingClientRect if it exists since it's faster than looping offset nodes
-          // Fallback to offsetParent calculations if the body isn't static better since it stops at the body root
-          if (rootElm === body && elm.getBoundingClientRect && DomQuery(body).css('position') === 'static') {
-            pos = elm.getBoundingClientRect();
-            rootElm = self.boxModel ? doc.documentElement : body;
-
-            // Add scroll offsets from documentElement or body since IE with the wrong box model will use d.body and so do WebKit
-            // Also remove the body/documentelement clientTop/clientLeft on IE 6, 7 since they offset the position
-            x = pos.left + (doc.documentElement.scrollLeft || body.scrollLeft) - rootElm.clientLeft;
-            y = pos.top + (doc.documentElement.scrollTop || body.scrollTop) - rootElm.clientTop;
-
-            return { x: x, y: y };
-          }
-
-          offsetParent = elm;
-          while (offsetParent && offsetParent != rootElm && offsetParent.nodeType) {
-            x += offsetParent.offsetLeft || 0;
-            y += offsetParent.offsetTop || 0;
-            offsetParent = offsetParent.offsetParent;
-          }
-
-          offsetParent = elm.parentNode;
-          while (offsetParent && offsetParent != rootElm && offsetParent.nodeType) {
-            x -= offsetParent.scrollLeft || 0;
-            y -= offsetParent.scrollTop || 0;
-            offsetParent = offsetParent.parentNode;
-          }
-        }
-
-        return { x: x, y: y };
+        return Position.getPos(this.doc.body, this.get(elm), rootElm);
       },
 
       /**
@@ -1543,9 +1511,7 @@ define(
        * alert(rng.startContainer + "," + rng.startOffset);
        */
       createRng: function () {
-        var doc = this.doc;
-
-        return doc.createRange ? doc.createRange() : new Range(this);
+        return this.doc.createRange();
       },
 
       /**
@@ -1572,63 +1538,6 @@ define(
       split: function (parentElm, splitElm, replacementElm) {
         var self = this, r = self.createRng(), bef, aft, pa;
 
-        // W3C valid browsers tend to leave empty nodes to the left/right side of the contents - this makes sense
-        // but we don't want that in our code since it serves no purpose for the end user
-        // For example splitting this html at the bold element:
-        //   <p>text 1<span><b>CHOP</b></span>text 2</p>
-        // would produce:
-        //   <p>text 1<span></span></p><b>CHOP</b><p><span></span>text 2</p>
-        // this function will then trim off empty edges and produce:
-        //   <p>text 1</p><b>CHOP</b><p>text 2</p>
-        function trimNode(node) {
-          var i, children = node.childNodes, type = node.nodeType;
-
-          function surroundedBySpans(node) {
-            var previousIsSpan = node.previousSibling && node.previousSibling.nodeName == 'SPAN';
-            var nextIsSpan = node.nextSibling && node.nextSibling.nodeName == 'SPAN';
-            return previousIsSpan && nextIsSpan;
-          }
-
-          if (type == 1 && node.getAttribute('data-mce-type') == 'bookmark') {
-            return;
-          }
-
-          for (i = children.length - 1; i >= 0; i--) {
-            trimNode(children[i]);
-          }
-
-          if (type != 9) {
-            // Keep non whitespace text nodes
-            if (type == 3 && node.nodeValue.length > 0) {
-              // If parent element isn't a block or there isn't any useful contents for example "<p>   </p>"
-              // Also keep text nodes with only spaces if surrounded by spans.
-              // eg. "<p><span>a</span> <span>b</span></p>" should keep space between a and b
-              var trimmedLength = trim(node.nodeValue).length;
-              if (!self.isBlock(node.parentNode) || trimmedLength > 0 || trimmedLength === 0 && surroundedBySpans(node)) {
-                return;
-              }
-            } else if (type == 1) {
-              // If the only child is a bookmark then move it up
-              children = node.childNodes;
-
-              // TODO fix this complex if
-              if (children.length == 1 && children[0] && children[0].nodeType == 1 &&
-                children[0].getAttribute('data-mce-type') == 'bookmark') {
-                node.parentNode.insertBefore(children[0], node);
-              }
-
-              // Keep non empty elements or img, hr etc
-              if (children.length || /^(br|hr|input|img)$/i.test(node.nodeName)) {
-                return;
-              }
-            }
-
-            self.remove(node);
-          }
-
-          return node;
-        }
-
         if (parentElm && splitElm) {
           // Get before chunk
           r.setStart(parentElm.parentNode, self.nodeIndex(parentElm));
@@ -1643,7 +1552,7 @@ define(
 
           // Insert before chunk
           pa = parentElm.parentNode;
-          pa.insertBefore(trimNode(bef), parentElm);
+          pa.insertBefore(TrimNode.trimNode(self, bef), parentElm);
 
           // Insert middle chunk
           if (replacementElm) {
@@ -1654,7 +1563,7 @@ define(
           }
 
           // Insert after chunk
-          pa.insertBefore(trimNode(aft), parentElm);
+          pa.insertBefore(TrimNode.trimNode(self, aft), parentElm);
           self.remove(parentElm);
 
           return replacementElm || splitElm;
